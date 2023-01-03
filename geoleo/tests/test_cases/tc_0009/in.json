@@ -1,0 +1,114 @@
+{
+  "locations": [
+    {
+      "guid": "guid_loc_A",
+      "ll": {
+        "lat": 0,
+        "lng": 0
+      },
+      "hidden": false,
+      "properties": {
+        "name": "A",
+        "region": "reg_one"
+      }
+    },
+    {
+      "guid": "guid_loc_B",
+      "ll": {
+        "lat": 1,
+        "lng": 1
+      },
+      "hidden": true,
+      "properties": {
+        "name": "B",
+        "region": "reg_one"
+      }
+    },
+    {
+      "guid": "guid_loc_C",
+      "ll": {
+        "lat": 0.25,
+        "lng": 0.0
+      },
+      "hidden": false,
+      "properties": {
+        "name": "C",
+        "region": "reg_one"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "guid": "guid_r_1",
+      "loc_startend_mrid": ["guid_loc_B", "guid_loc_A"],
+      "route_points":[{"lat": 1.0, "lng": 1.0 }, {"lat": 0.0, "lng": 0.0}]
+    },
+    {
+      "guid": "guid_r_2",
+      "loc_startend_mrid": ["guid_loc_B", "guid_loc_C"],
+      "route_points":[{"lat": 1.0, "lng": 1.0 }, {"lat": 0.25, "lng": 0.0}]
+    }
+  ],
+  "mapping": [
+    {
+      "line_mrid": "guid_ul_1",
+      "route_mrid": "guid_r_1",
+      "shift_orth": 1,
+      "order": 0,
+      "invert_direction": true
+    },
+    {
+      "line_mrid": "guid_ul_2",
+      "route_mrid": "guid_r_2",
+      "shift_orth": 1,
+      "order": 0,
+      "invert_direction": false
+    },
+    {
+      "line_mrid": "guid_ul_3",
+      "route_mrid": "guid_r_1",
+      "shift_orth": -1,
+      "order": 0,
+      "invert_direction": true
+    },
+    {
+      "line_mrid": "guid_ul_4",
+      "route_mrid": "guid_r_2",
+      "shift_orth": -1,
+      "order": 0,
+      "invert_direction": false
+    }
+  ],
+  "unique_lines": [
+    {
+      "guid": "guid_ul_1",
+      "loc_startend_mrid": ["guid_loc_A", "guid_loc_B"],
+      "parameter": {"name": "UL1"}
+    },
+    {
+      "guid": "guid_ul_2",
+      "loc_startend_mrid": ["guid_loc_A", "guid_loc_B"],
+      "parameter": {"name": "UL2"}
+    },
+    {
+      "guid": "guid_ul_3",
+      "loc_startend_mrid": ["guid_loc_B", "guid_loc_C"],
+      "parameter": {"name": "UL3"}
+    },
+    {
+      "guid": "guid_ul_4",
+      "loc_startend_mrid": ["guid_loc_B", "guid_loc_C"],
+      "parameter": {"name": "UL4"}
+    }
+  ],
+  "parameter": {
+    "line_dist": 0.025,
+    "kink_dist": 0.05
+  },
+  "connected_lines": [
+    {"start_id": "guid_ul_1", "end_id": "guid_ul_4"},
+    {"start_id": "guid_ul_3", "end_id": "guid_ul_2"}
+  ]
+}
+
+
