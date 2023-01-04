@@ -70,12 +70,32 @@ fn generate_missing_routes(gd: GridData, h_locations: HashMap<String, Location>,
         lines_without_route.clone().into_iter().map(|(line_guid, startend)| {
             let ordered_mrids = reorder_startend(startend.clone()).join("_");
             RouteLineMapping {
-                line_mrid: line_guid, route_mrid: ordered_mrids.clone(), shift_orth: 0, order: 0,
+                line_mrid: line_guid, route_mrid: ordered_mrids.clone(), shift_orth: 0.0, order: 0,
                 invert_direction: ordered_mrids.eq(&startend.join("_").clone())
             }
         }).collect::<Vec<RouteLineMapping>>()
     ).collect();
     Ok((h_routes, mapping))
+}
+
+fn route_line_mapping_fix_ordering(mapping_in: Vec<RouteLineMapping>) -> Vec<RouteLineMapping> {
+    let mut counter: HashMap<String, f32> = HashMap::new();
+    mapping_in.iter().for_each(|rlm| {
+        counter.entry(rlm.route_mrid.clone()).and_modify(|v| *v -= 0.5).or_insert(0.0);
+    });
+
+    let mut mapping = mapping_in;
+    mapping.sort_by(|a, b| {
+        let (av, bv) = (&a.shift_orth, &b.shift_orth);
+        av.partial_cmp(bv).unwrap()
+    });
+
+    for rlm in mapping.iter_mut() {
+        let c = counter.get_mut(&rlm.route_mrid).unwrap();
+        rlm.shift_orth = c.clone();
+        *c += 1.;
+    }
+    mapping
 }
 
 #[allow(dead_code)]
@@ -90,11 +110,11 @@ fn generate_line_segments_for_line(h_routes: &HashMap<String,  Route>, mapping: 
     let rps = cur_mappings.into_iter().map(|rlm| {
         let Some(r) = h_routes.get(&rlm.route_mrid)
             else { return Err(format!("Route '{}' mapped to line '{}' not found", rlm.route_mrid, rlm.line_mrid)); };
-        let rp_info: (i16, Vec<LL>) = if rlm.invert_direction {
-            (-1 * rlm.shift_orth.clone(), r.route_points.clone().into_iter().rev().collect())
+        let rp_info: (f32, Vec<LL>) = if rlm.invert_direction {
+            (-1.0 * rlm.shift_orth.clone(), r.route_points.clone().into_iter().rev().collect())
         } else { (rlm.shift_orth.clone(), r.route_points.clone()) };
         Ok(rp_info)
-    }).collect::<Result<Vec<(i16, Vec<LL>)>, String>>()?;
+    }).collect::<Result<Vec<(f32, Vec<LL>)>, String>>()?;
     let ls: Vec<LineSegment> = rps.into_iter().flat_map(|(shift, rp)|
         rp.windows(2).map(|p| LineSegment{
             ll_line: [p[0].clone(), p[1].clone()], shift, ext_info: None }).collect::<Vec<LineSegment>>()
@@ -185,7 +205,7 @@ fn make_start_and_end_kink(ll: LayoutLine, kink_dist: f64) -> LayoutLine {
         let pll = lss[0].clone();
         let pll_ext = pll.ext_info.clone().unwrap();
         let mut ls_ext = LineSegmentInfo::new(
-            [pll_ext.line_org[0].clone(), pll_ext.line[0].clone()], 0, 0.0);
+            [pll_ext.line_org[0].clone(), pll_ext.line[0].clone()], 0.0, 0.0);
         ls_ext.scale_line_segment_inplace_from_org(-0.5);
         let ls_start = LineSegment{ext_info: Some(ls_ext), ..pll.clone()};
         [ls_start].into_iter().chain(lss).collect()
@@ -197,7 +217,7 @@ fn make_start_and_end_kink(ll: LayoutLine, kink_dist: f64) -> LayoutLine {
         let pll = lss[ll_num_segments].clone();
         let pll_ext = pll.ext_info.clone().unwrap();
         let mut ls_ext = LineSegmentInfo::new(
-            [pll_ext.line[1].clone(), pll_ext.line_org[1].clone()], 0, 0.0);
+            [pll_ext.line[1].clone(), pll_ext.line_org[1].clone()], 0.0, 0.0);
         ls_ext.scale_line_segment_inplace_from_org(0.5);
         let ls_end = LineSegment{ext_info: Some(ls_ext), ..pll.clone()};
         lss.into_iter().chain([ls_end]).collect()
@@ -261,6 +281,9 @@ pub fn generate_layout_lines(gd: &GridData) -> Result<Vec<LayoutLine>, String> {
     // generate missing routes
     let (h_routes, mapping) =
         generate_missing_routes(gd.clone(), h_locations, h_routes_in)?;
+
+    // fix ordering so that there is 1 difference in the shift_orth between the lines
+    let mapping = route_line_mapping_fix_ordering(mapping);
 
     //
     let lls = {
@@ -743,14 +766,14 @@ mod tests {
                 RouteLineMapping {
                     line_mrid: format!("guid_ul_1"),
                     route_mrid: format!("guid_r_2"),
-                    shift_orth: 0,
+                    shift_orth: 0.0,
                     order: 1,
                     invert_direction: false
                 },
                 RouteLineMapping {
                     line_mrid: format!("guid_ul_1"),
                     route_mrid: format!("guid_r_1"),
-                    shift_orth: 0,
+                    shift_orth: 1.0,
                     order: 0,
                     invert_direction: true
                 },
@@ -762,7 +785,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_missing_routes_test() {
+    fn generate_missing_routes_and_fix_test() {
         let gd = setup_base_data_ul();
 
         let (h_locations, h_routes_in,
@@ -773,19 +796,21 @@ mod tests {
 
         let (h_routes, mapping) = rr.unwrap();
 
-        assert_eq!(mapping.len(), 4);
-        assert_eq!(mapping[2].line_mrid, format!("guid_ul_2"));
-        assert_eq!(mapping[2].route_mrid, format!("guid_loc_D_guid_loc_C"));
-        assert_eq!(mapping[2].shift_orth, 0);
-        assert_eq!(mapping[2].order, 0);
-        assert_eq!(mapping[2].invert_direction, true);
-        assert_eq!(mapping[3].line_mrid, format!("guid_ul_3"));
-        assert_eq!(mapping[3].route_mrid, format!("guid_loc_D_guid_loc_C"));
-        assert_eq!(mapping[3].shift_orth, 0);
-        assert_eq!(mapping[3].order, 0);
-        assert_eq!(mapping[3].invert_direction, false);
+        let mapping = route_line_mapping_fix_ordering(mapping);
 
-        let t = h_routes.get(&mapping[3].route_mrid);
+        assert_eq!(mapping.len(), 4);
+        assert_eq!(mapping[1].line_mrid, format!("guid_ul_2"));
+        assert_eq!(mapping[1].route_mrid, format!("guid_loc_D_guid_loc_C"));
+        assert_eq!(mapping[1].shift_orth, -0.5);
+        assert_eq!(mapping[1].order, 0);
+        assert_eq!(mapping[1].invert_direction, true);
+        assert_eq!(mapping[2].line_mrid, format!("guid_ul_3"));
+        assert_eq!(mapping[2].route_mrid, format!("guid_loc_D_guid_loc_C"));
+        assert_eq!(mapping[2].shift_orth, 0.5);
+        assert_eq!(mapping[2].order, 0);
+        assert_eq!(mapping[2].invert_direction, false);
+
+        let t = h_routes.get(&mapping[2].route_mrid);
         assert_eq!(t.is_some(), true);
         let tt = t.unwrap();
         assert_eq!(tt.route_points.len(), 2);

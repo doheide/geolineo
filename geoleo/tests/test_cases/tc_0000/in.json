@@ -72,7 +72,7 @@
     {
       "line_mrid": "guid_ul_1",
       "route_mrid": "guid_r_1",
-      "shift_orth": 0,
+      "shift_orth": 1,
       "order": 0,
       "invert_direction": true
     }

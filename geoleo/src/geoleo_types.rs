@@ -45,7 +45,7 @@ pub struct Line {
 pub struct RouteLineMapping {
     pub line_mrid: String,
     pub route_mrid: String,
-    pub shift_orth: i16,
+    pub shift_orth: f32,
     pub order: u16,
     pub invert_direction: bool
 }
@@ -91,7 +91,7 @@ pub struct LineSegmentInfo {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct LineSegment {
     pub ll_line: [LL;2],
-    pub shift: i16,
+    pub shift: f32,
     pub ext_info: Option<LineSegmentInfo>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -135,10 +135,10 @@ impl From<Point> for LL {
 
 #[allow(dead_code)]
 impl LineSegmentInfo {
-    pub fn new_from_ll(ll_line: [LL;2], shift: i16, shift_amount: f64) -> Self {
+    pub fn new_from_ll(ll_line: [LL;2], shift: f32, shift_amount: f64) -> Self {
         Self::new([ll_line[0].clone().into(), ll_line[1].clone().into()], shift, shift_amount)
     }
-    pub fn new(line: [Point;2], shift: i16, shift_amount: f64) -> Self {
+    pub fn new(line: [Point;2], shift: f32, shift_amount: f64) -> Self {
         let (dx, dy) = (line[1].x - line[0].x, line[1].y - line[0].y);
         let len = sqrt(dx*dx + dy*dy);
         let m = Point{x:dx/len, y:dy/len};
@@ -268,9 +268,9 @@ mod tests {
     #[test]
     fn intersection_test1() {
         let l1 = LineSegmentInfo::new(
-            [Point { x: 0.0, y: 0.0 }, Point { x: 1.0, y: 0.0 }], 0, 0.0);
+            [Point { x: 0.0, y: 0.0 }, Point { x: 1.0, y: 0.0 }], 0.0, 0.0);
         let l2 = LineSegmentInfo::new(
-            [Point { x: 0.8, y: -1.0 }, Point { x: 0.8, y: 1.0 }], 0, 0.0);
+            [Point { x: 0.8, y: -1.0 }, Point { x: 0.8, y: 1.0 }], 0.0, 0.0);
         let (alpha, beta) = l1.calc_intersection(l2).unwrap();
 
         assert_eq!(alpha, 0.8, "Alpha");
@@ -279,9 +279,9 @@ mod tests {
     #[test]
     fn intersection_test2() {
         let l1 = LineSegmentInfo::new(
-            [Point { x: -1.0, y: -1.0 }, Point { x: 1.0, y: 1.0 }], 0, 0.0);
+            [Point { x: -1.0, y: -1.0 }, Point { x: 1.0, y: 1.0 }], 0.0, 0.0);
         let l2 = LineSegmentInfo::new(
-            [Point { x: -1.0, y: 1.0 }, Point { x: 1.0, y: -1.0 }], 0, 0.0);
+            [Point { x: -1.0, y: 1.0 }, Point { x: 1.0, y: -1.0 }], 0.0, 0.0);
 
         let (alpha, beta) = l1.calc_intersection(l2).unwrap();
 
@@ -291,9 +291,9 @@ mod tests {
     #[test]
     fn intersection_test3() {
         let l1 = LineSegmentInfo::new(
-            [Point { x: -1.0, y: 0.0 }, Point { x: 1.0, y: 0.0 }], 0, 0.0);
+            [Point { x: -1.0, y: 0.0 }, Point { x: 1.0, y: 0.0 }], 0.0, 0.0);
         let l2 = LineSegmentInfo::new(
-            [Point { x: -1.0, y: 1.0 }, Point { x: 1.0, y: 1.0 }], 0, 0.0);
+            [Point { x: -1.0, y: 1.0 }, Point { x: 1.0, y: 1.0 }], 0.0, 0.0);
         let alpha = l1.calc_intersection(l2);
 
         assert_eq!(alpha, None);
@@ -304,9 +304,9 @@ mod tests {
         let p1s = Point { x: 0.0, y: 0.0 };
         let p2e = Point { x: 1.0, y: 2.0 };
         let mut l1 = LineSegmentInfo::new(
-            [p1s.clone(), Point { x: 2.0, y: 0.0 }], 0, 0.0);
+            [p1s.clone(), Point { x: 2.0, y: 0.0 }], 0.0, 0.0);
         let mut l2 = LineSegmentInfo::new(
-            [Point { x: 1., y: -1.0 }, p2e.clone()], 0, 0.0);
+            [Point { x: 1., y: -1.0 }, p2e.clone()], 0.0, 0.0);
 
         println!("l1: {:?}", l1);
         let (alpha, beta) = l1.clone().calc_intersection(l2.clone()).unwrap();
@@ -325,9 +325,9 @@ mod tests {
     #[test]
     fn lines_direction_comparison_test_parallel() {
         let l1 = LineSegmentInfo::new(
-            [Point{x: 0., y: 0.0}, Point { x: 2.0, y: 0.0 }], 0, 0.0);
+            [Point{x: 0., y: 0.0}, Point { x: 2.0, y: 0.0 }], 0.0, 0.0);
         let l2 = LineSegmentInfo::new(
-            [Point { x: 1., y: 1.0 }, Point{x:1.5, y: 1.}], 0, 0.0);
+            [Point { x: 1., y: 1.0 }, Point{x:1.5, y: 1.}], 0.0, 0.0);
 
         let v = l1.lines_direction_comparison(l2);
         assert_eq!(v, 1.)
@@ -335,9 +335,9 @@ mod tests {
     #[test]
     fn lines_direction_comparison_test_antiparallel() {
         let l1 = LineSegmentInfo::new(
-            [Point{x: 0., y: 0.0}, Point { x: 2.0, y: 0.0 }], 0, 0.0);
+            [Point{x: 0., y: 0.0}, Point { x: 2.0, y: 0.0 }], 0.0, 0.0);
         let l2 = LineSegmentInfo::new(
-            [Point { x: 1., y: 1.0 }, Point{x: 0., y: 1.}], 0, 0.0);
+            [Point { x: 1., y: 1.0 }, Point{x: 0., y: 1.}], 0.0, 0.0);
 
         let v = l1.lines_direction_comparison(l2);
         assert_eq!(v, -1.)
@@ -345,9 +345,9 @@ mod tests {
     #[test]
     fn lines_direction_comparison_test_ortho() {
         let l1 = LineSegmentInfo::new(
-            [Point{x: -1.0, y: -1.0}, Point{x: 1.0, y: 1.0 }], 0, 0.0);
+            [Point{x: -1.0, y: -1.0}, Point{x: 1.0, y: 1.0 }], 0.0, 0.0);
         let l2 = LineSegmentInfo::new(
-            [Point{x: -1.0, y: 1.0 }, Point{x: 1.0, y: -1.0}], 0, 0.0);
+            [Point{x: -1.0, y: 1.0 }, Point{x: 1.0, y: -1.0}], 0.0, 0.0);
 
         let v = l1.lines_direction_comparison(l2);
         assert_eq!(v, 0.0)
@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn lines_circle_intersections_test_simple1() {
         let lsi = LineSegmentInfo::new(
-            [Point{x: 0.0, y: 0.0}, Point{x: 1.0, y: 0.0 }], 0, 0.0);
+            [Point{x: 0.0, y: 0.0}, Point{x: 1.0, y: 0.0 }], 0.0, 0.0);
         let cc = Point{x: 0.0, y: 0.0};
 
         let Some(ci) = lsi.calculate_circle_intersection(cc, 1.)
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn lines_circle_intersections_test_simple2() {
         let lsi = LineSegmentInfo::new(
-            [Point{x: 0.0, y: 0.0}, Point{x: 0.0, y: 1.0 }], 0, 0.0);
+            [Point{x: 0.0, y: 0.0}, Point{x: 0.0, y: 1.0 }], 0.0, 0.0);
         let cc = Point{x: 0.0, y: 0.0};
 
         let Some(ci) = lsi.calculate_circle_intersection(cc, 0.5)
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     fn lines_circle_intersections_test_simple3() {
         let lsi = LineSegmentInfo::new(
-            [Point{x: 0.0, y: 0.0}, Point{x: 0.0, y: 1.0 }], 0, 0.0);
+            [Point{x: 0.0, y: 0.0}, Point{x: 0.0, y: 1.0 }], 0.0, 0.0);
         let cc = Point{x: 0.0, y: 1.0};
 
         let Some(ci) = lsi.calculate_circle_intersection(cc, 0.5)
@@ -386,7 +386,7 @@ mod tests {
     #[test]
     fn lines_circle_intersections_test_dia() {
         let lsi = LineSegmentInfo::new(
-            [Point{x: 0.0, y: 0.0}, Point{x: 0.1, y: 0.1 }], 0, 0.0);
+            [Point{x: 0.0, y: 0.0}, Point{x: 0.1, y: 0.1 }], 0.0, 0.0);
         let cc = Point{x: 0.0, y: 0.0};
 
         let Some(ci) = lsi.calculate_circle_intersection(cc, 1.0)
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn lines_circle_intersections_test_factor() {
         let lsi = LineSegmentInfo::new(
-            [Point{x: 0.0, y: 0.0}, Point{x: 0.5, y: 0.0 }], 0, 0.0);
+            [Point{x: 0.0, y: 0.0}, Point{x: 0.5, y: 0.0 }], 0.0, 0.0);
         let cc = Point{x: 4.0, y: 0.0};
 
         let Some(ci) = lsi.calculate_circle_intersection(cc, 2.0)
