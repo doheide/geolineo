@@ -8,7 +8,6 @@ pub use crate::geoleo_types::{GridData, Line, Route, UniqueLine, RouteLineMappin
                               LineSegment, LayoutLine, GeoJsonContent, windows_mut_each};
 
 use geojson::{FeatureCollection, Feature, Geometry, Value, JsonObject, Position};
-use serde_json::json;
 use crate::geoleo_types::{find_layout_line_by_guid, LineSegmentInfo, Point};
 
 pub use crate::prepared_data::{*};
@@ -364,8 +363,8 @@ pub fn process_line_finishing_merge_lines(ll_start: LayoutLine, ll_end: LayoutLi
     let len_start = ll_start.line_segments.clone().len();
     if len_start == 0 { return None }
     let len_start = len_start-1;
-    let mut ll_start_seg = ll_start.line_segments.clone().get(len_start).unwrap().clone();
-    let mut ll_end_seg = ll_end.line_segments.clone().get(0).unwrap().clone();
+    let ll_start_seg = ll_start.line_segments.clone().get(len_start).unwrap().clone();
+    let ll_end_seg = ll_end.line_segments.clone().get(0).unwrap().clone();
 
     // let (ll_start_segd, ll_end_segd) = (ll_start_seg.clone(), ll_end_seg.clone());
     let mut ll_array = [ll_start_seg, ll_end_seg];
