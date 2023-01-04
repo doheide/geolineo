@@ -6,10 +6,11 @@ mod rocket_helper;
 use rocket::State;
 use conf::CoSe;
 use rocket_dyn_templates::{Template, context};
-use geoleo::{generate_geojson, GeoJsonContent, list_of_testcases, load_testcase_by_id};
+use geoleo::{generate_geojson, GeoJsonContent, GridData, list_of_testcases, load_testcase_by_id};
 use dotenv;
 use rocket::http::{Status};
 use rocket_helper::JSONResponder;
+use rocket::serde::json::Json;
 use itertools::Itertools;
 use tracing_subscriber;
 
@@ -52,7 +53,16 @@ async fn tc_geojson(tc_id: String, cose: &State<CoSe>) -> JSONResponder<GeoJsonC
     JSONResponder::new_data_ok(r)
 }
 
-
+#[post("/render", format="json", data="<grid_data>")]
+async fn render_geojson(grid_data: Json<GridData>) -> JSONResponder<GeoJsonContent> {
+    let r = match generate_geojson(grid_data.into_inner()) {
+        Ok(d) => d, Err(e) => {
+            println!("Reder api -> Error: {:?}", e);
+            return JSONResponder::new_error(format!("Error: {}", e), Status::BadRequest)
+        }
+    };
+    JSONResponder::new_data_ok(r)
+}
 // ************************************************************************
 // ************************************************************************
 #[rocket::main]
@@ -66,7 +76,7 @@ async fn main() -> Result<(), rocket::Error> {
         .manage(cose)
         .attach(Template::fairing())
         .mount("/", routes![index, tc_map])
-        .mount("/api/v1", routes![tc_geojson])
+        .mount("/api/v1", routes![tc_geojson, render_geojson])
         .launch()
         .await?;
 
