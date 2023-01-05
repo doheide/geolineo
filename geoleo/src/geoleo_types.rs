@@ -3,37 +3,39 @@ use serde::{Serialize, Deserialize};
 use std::f64::consts::PI;
 use libm::{atan, exp, log, tan, sqrt};
 use geojson::{FeatureCollection, JsonObject};
+use rocket_okapi::okapi::schemars;
+use rocket_okapi::okapi::schemars::JsonSchema;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct LL {
     pub lat: f64,
     pub lng: f64
 }
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct Point {
     pub x: f64,
     pub y: f64
 }
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct Location {
     pub guid: String,
     pub ll: LL,
     pub hidden: bool,
     pub properties: JsonObject,
 }
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct Route {
     pub guid: String,
     pub loc_startend_mrid: [String; 2],
     pub route_points: Vec<LL>,
 }
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct UniqueLine {
     pub guid: String,
     pub loc_startend_mrid: [String; 2],
     pub parameter: JsonObject
 }
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct Line {
     pub guid: String,
     pub unique_line_mrid: String,
@@ -41,7 +43,7 @@ pub struct Line {
     pub loc_startend_mrid: [String; 2],
     pub parameter: JsonObject
 }
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct RouteLineMapping {
     pub line_mrid: String,
     pub route_mrid: String,
@@ -50,19 +52,19 @@ pub struct RouteLineMapping {
     pub invert_direction: bool
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct GeoJsonLayoutParameter {
     pub line_dist: f64,
     pub kink_dist: f64
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct ConnectedLine {
     pub start_id: String,
     pub end_id: String
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct GridData {
     pub locations: Vec<Location>,
     pub routes: Vec<Route>,
@@ -112,7 +114,7 @@ pub fn find_layout_line_by_guid(guid: String, lls: Vec<LayoutLine>) -> Option<La
     })
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct GeoJsonContent {
     pub locations: FeatureCollection,
     pub hidden_locations: FeatureCollection,

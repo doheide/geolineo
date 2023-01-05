@@ -15,6 +15,9 @@ use itertools::Itertools;
 use tracing_subscriber;
 use std::fs;
 
+use rocket_okapi::settings::UrlObject;
+use rocket_okapi::{openapi, openapi_get_routes, rapidoc::*};
+
 // ************************************************************************
 // ************************************************************************
 #[get("/")]
@@ -35,6 +38,7 @@ async fn tc_map(tc_id: String) -> Template {
         tc_geojson_url: format!("/api/v1/test_cases/{}/geo.json", tc_id)})
 }
 
+#[openapi(tag = "TestCases")]
 #[get("/test_cases/<tc_id>/geo.json")]
 async fn tc_geojson(tc_id: String, cose: &State<CoSe>) -> JSONResponder<GeoJsonContent> {
     debug!("tc_geojson: {}", tc_id);
@@ -54,6 +58,7 @@ async fn tc_geojson(tc_id: String, cose: &State<CoSe>) -> JSONResponder<GeoJsonC
     JSONResponder::new_data_ok(r)
 }
 
+#[openapi(tag = "Rendering")]
 #[post("/render", format="json", data="<grid_data>")]
 async fn render_geojson(grid_data: Json<GridData>) -> JSONResponder<GeoJsonContent> {
     let r = match generate_geojson(grid_data.into_inner()) {
@@ -64,6 +69,12 @@ async fn render_geojson(grid_data: Json<GridData>) -> JSONResponder<GeoJsonConte
     };
     JSONResponder::new_data_ok(r)
 }
+#[openapi(tag = "Rendering")]
+#[post("/render_test", format="json", data="<grid_data>")]
+async fn test_json(grid_data: Json<GridData>) -> Json<GridData> {
+    grid_data
+}
+
 // ************************************************************************
 // ************************************************************************
 #[rocket::main]
@@ -83,8 +94,25 @@ async fn main() -> Result<(), rocket::Error> {
     let _rocket = rocket::build()
         .manage(cose)
         .attach(Template::fairing())
+        // .mount("/", routes![index, tc_map])
+        // .mount("/api/v1", routes![tc_geojson, render_geojson])
         .mount("/", routes![index, tc_map])
-        .mount("/api/v1", routes![tc_geojson, render_geojson])
+        .mount("/api/v1", openapi_get_routes![tc_geojson, render_geojson, test_json])
+        .mount(
+            "/rapidoc/",
+            make_rapidoc(&RapiDocConfig {
+                general: GeneralConfig {
+                    spec_urls: vec![UrlObject::new("General", "/api/v1/openapi.json")],
+                    ..Default::default()
+                },
+                hide_show: HideShowConfig {
+                    allow_spec_url_load: false,
+                    allow_spec_file_load: false,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
         .launch()
         .await?;
 
