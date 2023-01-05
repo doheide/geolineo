@@ -12,10 +12,12 @@ RUN cargo build --release --bin geolineo --package geolineo
 
 
 FROM debian:buster-slim as runtime
-WORKDIR /etc/dabapi
+WORKDIR /etc/geolineo
 ENV ROCKET_ENV=production
 EXPOSE 80
 COPY --from=builder /app/target/release/geolineo /usr/local/bin
+COPY --from=builder /app/templates /etc/geolineo/templates
+COPY --from=builder /app/geoleo/tests/test_cases /etc/geolineo/test_cases
 
 #RUN true \
 #    && apt-get update \
