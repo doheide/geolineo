@@ -69,11 +69,7 @@ async fn render_geojson(grid_data: Json<GridData>) -> JSONResponder<GeoJsonConte
     };
     JSONResponder::new_data_ok(r)
 }
-#[openapi(tag = "Rendering")]
-#[post("/render_test", format="json", data="<grid_data>")]
-async fn test_json(grid_data: Json<GridData>) -> Json<GridData> {
-    grid_data
-}
+
 
 // ************************************************************************
 // ************************************************************************
@@ -97,7 +93,7 @@ async fn main() -> Result<(), rocket::Error> {
         // .mount("/", routes![index, tc_map])
         // .mount("/api/v1", routes![tc_geojson, render_geojson])
         .mount("/", routes![index, tc_map])
-        .mount("/api/v1", openapi_get_routes![tc_geojson, render_geojson, test_json])
+        .mount("/api/v1", openapi_get_routes![tc_geojson, render_geojson])
         .mount(
             "/rapidoc/",
             make_rapidoc(&RapiDocConfig {
