@@ -3,7 +3,7 @@
 Server that generates a geojson representation optimized to visualize power 
 grids. Example server: [https://geolineo.duftetechnik.de/](https://geolineo.duftetechnik.de/)  
 
-API documentation: [rapidoc](https://geolineo.duftetechnik.de/)
+API documentation: [rapidoc](https://geolineo.duftetechnik.de/rapidoc)
 
 Features:
 * Lines are rendered to one or more routes
