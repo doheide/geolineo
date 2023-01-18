@@ -6,6 +6,14 @@ Lines are rendered to routes and the placement of the lines can be controlled.
 ![Ex1](docs/ex1.png)
 ![Ex2](docs/ex2.png)
 
+## Todos
+ - [ ] Optional information output of the routes
+ - [ ] Direction indicator for lines (if the line is rendered normal or inverse direction)
+    - [ ] Add direction indicator for normal lines
+    - [ ] Correct direction indicator if neccessary for merged lines
+ - [ ] Document code inline
+ - [ ] Extend this readme
+
 # Input data
 Format input data:
 
