@@ -9,6 +9,7 @@ use itertools::Itertools;
 use serde_json;
 use serde::{Serialize, Deserialize};
 use walkdir::WalkDir;
+use tracing::debug;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct TestCaseInfo {
@@ -55,7 +56,7 @@ pub fn list_of_testcases(base_dir: String) -> Vec<TestCaseDetails> {
         base_dir.clone().as_str()).into_iter()
         .filter_map(|x| x.ok()).filter(|v| v.path().is_dir())
         .filter_map(|d| {
-            println!("path: {:?}", d);
+            debug!("path: {:?}", d);
             let file = match File::open(d.path().join("info.json")) {
                 Ok(f) => f, Err(_) => return None
             };

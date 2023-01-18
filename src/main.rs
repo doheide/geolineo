@@ -13,6 +13,10 @@ use rocket_helper::JSONResponder;
 use rocket::serde::json::Json;
 use itertools::Itertools;
 use tracing_subscriber;
+use std::fs;
+
+use rocket_okapi::settings::UrlObject;
+use rocket_okapi::{openapi, openapi_get_routes, rapidoc::*};
 
 // ************************************************************************
 // ************************************************************************
@@ -34,35 +38,39 @@ async fn tc_map(tc_id: String) -> Template {
         tc_geojson_url: format!("/api/v1/test_cases/{}/geo.json", tc_id)})
 }
 
+#[openapi(tag = "TestCases")]
 #[get("/test_cases/<tc_id>/geo.json")]
 async fn tc_geojson(tc_id: String, cose: &State<CoSe>) -> JSONResponder<GeoJsonContent> {
-    println!("lala: {}", tc_id);
+    debug!("tc_geojson: {}", tc_id);
     let gd = match load_testcase_by_id(tc_id, cose.conf.test_cases_subdirectory.clone()) {
         Ok(d) => d, Err(e) => {
-            println!("Error loading: {:?}", e);
+            error!("Error loading: {:?}", e);
             return JSONResponder::new_error(format!("Error when loading data: {}", e), Status::NotFound)
         }
     };
 
     let r = match generate_geojson(gd) {
         Ok(d) => d, Err(e) => {
-            println!("Error generating: {:?}", e);
+            error!("Error generating: {:?}", e);
             return JSONResponder::new_error(format!("Error when loading data: {}", e), Status::InternalServerError)
         }
     };
     JSONResponder::new_data_ok(r)
 }
 
+#[openapi(tag = "Rendering")]
 #[post("/render", format="json", data="<grid_data>")]
 async fn render_geojson(grid_data: Json<GridData>) -> JSONResponder<GeoJsonContent> {
     let r = match generate_geojson(grid_data.into_inner()) {
         Ok(d) => d, Err(e) => {
-            println!("Reder api -> Error: {:?}", e);
+            error!("Render api -> Error: {:?}", e);
             return JSONResponder::new_error(format!("Error: {}", e), Status::BadRequest)
         }
     };
     JSONResponder::new_data_ok(r)
 }
+
+
 // ************************************************************************
 // ************************************************************************
 #[rocket::main]
@@ -70,13 +78,37 @@ async fn main() -> Result<(), rocket::Error> {
     dotenv::from_filename("local.env").ok();
     let cose = CoSe::from_env();
     tracing_subscriber::fmt::init();
-    info!("cose: {:?}", cose);
+    info!("cose: {:?}", &cose);
+
+    debug!("templates: ");
+    for p in fs::read_dir(cose.conf.rocket_template_dir.as_str()).unwrap()
+    { debug!(" - {}", p.unwrap().path().display()); }
+    debug!("tests_cases: ");
+    for p in fs::read_dir(cose.conf.test_cases_subdirectory.as_str()).unwrap()
+    { debug!(" - {}", p.unwrap().path().display()); }
 
     let _rocket = rocket::build()
         .manage(cose)
         .attach(Template::fairing())
+        // .mount("/", routes![index, tc_map])
+        // .mount("/api/v1", routes![tc_geojson, render_geojson])
         .mount("/", routes![index, tc_map])
-        .mount("/api/v1", routes![tc_geojson, render_geojson])
+        .mount("/api/v1", openapi_get_routes![tc_geojson, render_geojson])
+        .mount(
+            "/rapidoc/",
+            make_rapidoc(&RapiDocConfig {
+                general: GeneralConfig {
+                    spec_urls: vec![UrlObject::new("General", "/api/v1/openapi.json")],
+                    ..Default::default()
+                },
+                hide_show: HideShowConfig {
+                    allow_spec_url_load: false,
+                    allow_spec_file_load: false,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
         .launch()
         .await?;
 

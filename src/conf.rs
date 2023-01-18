@@ -4,8 +4,9 @@ use conf_from_env::{SetStructFromEnv, ConfigAndSecrets};
 pub struct Config {
     pub rust_log: String,
     pub test_cases_subdirectory: String,
+    pub rocket_template_dir: String
 }
-#[derive(SetStructFromEnv, Clone, Debug)]
+#[derive(SetStructFromEnv, Clone)]
 pub struct Secrets {
 
 }

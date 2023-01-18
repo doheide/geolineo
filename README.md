@@ -1,7 +1,15 @@
 # geolineo
 
-Server that generates a geojson representation optimized to visualize power grids. 
-Lines are rendered to routes and the placement of the lines can be controlled.
+Server that generates a geojson representation optimized to visualize power 
+grids. Example server: [https://geolineo.duftetechnik.de/](https://geolineo.duftetechnik.de/)  
+
+API documentation: [rapidoc](https://geolineo.duftetechnik.de/rapidoc)
+
+Features:
+* Lines are rendered to one or more routes
+* Routes consist of a sequences of points
+* The placement of the lines can be controlled
+* Multiple lines can be merged
 
 ![Ex1](docs/ex1.png)
 ![Ex2](docs/ex2.png)
