@@ -13,6 +13,18 @@
       }
     },
     {
+      "guid": "guid_loc_filtered",
+      "ll": {
+        "lat": null,
+        "lng": null
+      },
+      "hidden": false,
+      "properties": {
+        "name": "F",
+        "region": "reg_one"
+      }
+    },
+    {
       "guid": "guid_loc_B",
       "ll": {
         "lat": 0.5,
@@ -61,7 +73,7 @@
       "route_points":[{"lat": 0.5, "lng": 1.0 }, {"lat": 1.0, "lng": 1.5}]
     }
   ],
-  "mapping": [
+  "mappings": [
     {
       "line_mrid": "guid_ul_1",
       "route_mrid": "guid_r_2",
