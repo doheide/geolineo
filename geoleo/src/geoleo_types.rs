@@ -8,8 +8,8 @@ use rocket_okapi::okapi::schemars::JsonSchema;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct LL {
-    pub lat: f64,
-    pub lng: f64
+    pub lat: Option<f64>,
+    pub lng: Option<f64>
 }
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct Point {
@@ -68,9 +68,9 @@ pub struct ConnectedLine {
 pub struct GridData {
     pub locations: Vec<Location>,
     pub routes: Vec<Route>,
-    pub unique_lines: Option<Vec<UniqueLine>>,
+    pub unique_lines: Vec<UniqueLine>,
     pub lines: Option<Vec<Line>>,
-    pub mapping: Vec<RouteLineMapping>,
+    pub mappings: Vec<RouteLineMapping>,
     pub parameter: GeoJsonLayoutParameter,
     pub connected_lines: Vec<ConnectedLine>
 }
@@ -115,23 +115,33 @@ pub fn find_layout_line_by_guid(guid: String, lls: Vec<LayoutLine>) -> Option<La
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+pub struct FilterOutReport {
+    pub filtered_out_locations: Vec<String>,
+    pub filtered_out_routes: Vec<String>,
+    pub filtered_out_lines: Vec<String>,
+    pub filtered_out_ulines: Vec<String>,
+    pub filtered_out_mappings: Vec<String>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
 pub struct GeoJsonContent {
     pub locations: FeatureCollection,
     pub hidden_locations: FeatureCollection,
     pub lines: FeatureCollection,
     pub routes: Option<FeatureCollection>,
     pub connection_points: FeatureCollection,
+    pub filter_report: FilterOutReport
 }
 
 // **********************************************************************
 impl From<LL> for Point {
     fn from(ll: LL) -> Self {
-        Self{ x: ll.lng, y: 180.0 / PI * (2.0 * atan(exp(ll.lat * PI / 180.0)) - PI / 2.0) }
+        Self{ x: ll.lng.unwrap(), y: 180.0 / PI * (2.0 * atan(exp(ll.lat.unwrap() * PI / 180.0)) - PI / 2.0) }
     }
 }
 impl From<Point> for LL {
     fn from(p: Point) -> Self {
-        Self{ lat: 180.0 / PI * log(tan(PI / 4.0 + p.y * (PI / 180.0) / 2.0)), lng: p.x}
+        Self{ lat: Some(180.0 / PI * log(tan(PI / 4.0 + p.y * (PI / 180.0) / 2.0))), lng: Some(p.x)}
     }
 }
 
@@ -257,11 +267,11 @@ mod tests {
 
     #[test]
     fn conversion_test() {
-        let ll = LL { lat: 1., lng: 1.0 };
+        let ll = LL { lat: Some(1.), lng: Some(1.0) };
         let p: Point = ll.clone().into();
         let ll2: LL = p.clone().into();
         // round after the 8-th digits assuming that below are only numerical errors
-        let ll2 = LL { lat: (ll2.lat * 10000000.).round() / 10000000., lng: ll2.lng };
+        let ll2 = LL { lat: Some((ll2.lat.unwrap() * 10000000.).round() / 10000000.), lng: Some(ll2.lng.unwrap()) };
 
         println!("ll: {:?} -> p: {:?} -> ll: {:?}", &ll, &p, &ll2);
         assert_eq!(ll, ll2);

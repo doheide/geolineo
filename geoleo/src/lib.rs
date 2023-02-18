@@ -3,9 +3,10 @@ mod prepared_data;
 
 use std::string::String;
 use std::collections::HashMap;
+use std::vec::Vec;
 use itertools::Itertools;
 pub use crate::geoleo_types::{GridData, Line, Route, UniqueLine, RouteLineMapping, Location, LL,
-                              LineSegment, LayoutLine, GeoJsonContent, windows_mut_each};
+                              LineSegment, LayoutLine, GeoJsonContent, FilterOutReport, windows_mut_each};
 
 use geojson::{FeatureCollection, Feature, Geometry, Value, JsonObject, Position};
 use crate::geoleo_types::{find_layout_line_by_guid, LineSegmentInfo, Point};
@@ -13,42 +14,61 @@ use crate::geoleo_types::{find_layout_line_by_guid, LineSegmentInfo, Point};
 pub use crate::prepared_data::{*};
 
 pub use tracing::{debug};
-// ************************************************************************************
 
 
 // ************************************************************************************
 #[allow(dead_code)]
-fn compare_startends<T: std::cmp::Eq>(v1: [T;2], v2: [T;2]) -> bool {
+fn compare_startends<T: std::cmp::Eq>(v1: &[T;2], v2: &[T;2]) -> bool {
     (v1[0]==v2[0] && v1[1]==v2[1]) || (v1[1]==v2[0] && v1[0]==v2[1])
 }
 #[allow(dead_code)]
-fn generate_missing_routes(gd: GridData, h_locations: HashMap<String, Location>, h_routes_in: HashMap<String, Route>)
-    -> Result<(HashMap<String, Route>, Vec<RouteLineMapping>), String>
+fn generate_missing_routes(gd: &GridData, h_locations: &HashMap<String, &Location>)
+    -> Result<(Vec<Route>, Vec<RouteLineMapping>), String>
 {
-    fn line_has_route(gd: &GridData, line_guid: String) -> bool {
-        gd.mapping.clone().into_iter().find(|rlm| rlm.clone().line_mrid.eq(&line_guid.clone())).is_some()
-    }
-    fn route_exists(gd: &GridData, startend: [String;2]) -> bool {
-        gd.routes.clone().into_iter().find(|k| compare_startends(k.loc_startend_mrid.clone(), startend.clone())).is_some()
-    }
-    fn reorder_startend(x: [String;2]) -> [String;2]
-    { match &x[0].ge(&x[1]) { true => [x[0].clone(), x[1].clone()], false => [x[1].clone(), x[0].clone()]} }
+    let lines_with_route_ids: Vec<_> = gd.mappings.iter().map(|rlm| rlm.line_mrid.clone()).sorted().collect();
+    let line_has_route = |line_guid: &String| -> bool {
+        lines_with_route_ids.binary_search(line_guid).is_ok()
+        //gd.mappings.iter().find(|&rlm|
+        //    { rlm.line_mrid.eq(line_guid) }
+        //).is_some()
+    };
+    let route_startend_ids: Vec<_> = gd.routes.iter().map(|r|
+        format!("{}__{}", r.loc_startend_mrid[0].clone(), r.loc_startend_mrid[1].clone())).collect();
+    let route_exists = |startend: &[String; 2]| -> bool {
+        route_startend_ids.binary_search(&format!("{}__{}", startend[0].clone(), startend[1].clone())).is_ok()
+        // gd.routes.clone().into_iter().find(|k| compare_startends(&k.loc_startend_mrid, startend)).is_some()
+    };
+    let reorder_startend = |x: &[String; 2]| -> [String; 2] {
+        match &x[0].ge(&x[1]) {
+            true => [x[0].clone(), x[1].clone()],
+            false => [x[1].clone(), x[0].clone()]
+        }
+    };
 
-    let lines_without_route: Vec<(String,[String;2])> = match gd.lines.clone() {
-        None => Vec::<(String,[String;2])>::new(),
-        Some(v) => v.into_iter().filter(|v| !line_has_route(
-            &gd, v.guid.clone())).map(|v| (v.guid.clone(), v.loc_startend_mrid.clone())).collect()
-    }.into_iter().chain(match gd.unique_lines.clone() {
-        None => Vec::<(String, [String;2])>::new(),
-        Some(v) => v.into_iter().filter(|v| !line_has_route(
-            &gd,v.guid.clone())).map(|v| (v.guid.clone(), v.loc_startend_mrid.clone())).collect()
-    }).collect();
-    let new_r_from_lines: Vec<[String;2]> = lines_without_route.clone().into_iter()
-        .map(|(_,v)| v)
-        .filter(|v| !route_exists(&gd, v.clone()))
+    //
+    let lines_without_route_from_lines: Vec<(_, _)> = match gd.lines.as_ref() {
+        None => Vec::<(String, [String; 2])>::new(),
+        Some(v) => {
+            v.iter().filter(|&l|
+                { !line_has_route(&l.guid) }
+            ).map(|v| (v.guid.clone(), v.loc_startend_mrid.clone())).collect()
+        }
+    };
+    let lines_without_route_from_ulines: Vec<(_, _)> =
+        gd.unique_lines.iter()
+            .filter(|&l|
+                { !line_has_route(&l.guid) })
+            .map(|v| (v.guid.clone(), v.loc_startend_mrid.clone())).collect();
+    let lines_without_route: Vec<(_, _)> = lines_without_route_from_lines.into_iter()
+        .chain(lines_without_route_from_ulines).collect();
+    debug!("Found {} lines without route.", lines_without_route.len());
+
+    let new_r_from_lines: Vec<[String;2]> = lines_without_route.iter()
+        .map(|(_,v)| v).filter(|v| !route_exists(v))
         .map(|x| reorder_startend(x)).unique().collect();
 
-    fn get_startend_positions(h_locations: &HashMap<String, Location>, startend: &[String;2]) -> std::result::Result<Vec<LL>, String> {
+
+    fn get_startend_positions(h_locations: &HashMap<String, &Location>, startend: &[String;2]) -> std::result::Result<Vec<LL>, String> {
         let loc_start = h_locations.get(&startend[0]).ok_or(
             format!("Cannot find location '{}' when getting pos", &startend[0]))?;
         let loc_end = h_locations.get(&startend[1]).ok_or(
@@ -56,35 +76,38 @@ fn generate_missing_routes(gd: GridData, h_locations: HashMap<String, Location>,
         Ok(vec![loc_start.ll.clone(), loc_end.ll.clone()])
     }
 
-    let h_routes_new = new_r_from_lines.clone().into_iter().map(|x| {
-        let guid = x.join("_");
-        match get_startend_positions(&h_locations, &x) {
-            Err(s) => return Err(s), Ok(llv) =>
-                return Ok((guid.clone(), Route{guid, loc_startend_mrid: x.clone(), route_points: llv}))
-        }
-    }).collect::<Result<HashMap<String, Route>, String>>()?;
-    let h_routes = h_routes_in.into_iter().chain(h_routes_new.into_iter())
-        .collect::<HashMap<String, Route>>();
+    // create new routes itself
+    let nrs = new_r_from_lines.iter().map(|se| {
+        let guid = se.join("_");
+        let nr = match get_startend_positions(&h_locations, se) {
+            Err(s) => Err(s),
+            Ok(llv) => Ok(Route{guid, loc_startend_mrid: se.clone(), route_points: llv})
+        };
+        nr
+    }).collect::<Result<Vec<_>, String>>()?;
+    let ors: Vec<_> = gd.routes.iter().map(|r| r.clone()).collect();
+    let routes: Vec<_> = nrs.into_iter().chain(ors).collect();
+    debug!("Generated routes. New number of routes: {}", routes.len());
 
-    let mapping: Vec<RouteLineMapping> = gd.mapping.clone().into_iter().chain(
-        lines_without_route.clone().into_iter().map(|(line_guid, startend)| {
-            let ordered_mrids = reorder_startend(startend.clone()).join("_");
-            RouteLineMapping {
-                line_mrid: line_guid, route_mrid: ordered_mrids.clone(), shift_orth: 0.0, order: 0,
-                invert_direction: ordered_mrids.eq(&startend.join("_").clone())
-            }
-        }).collect::<Vec<RouteLineMapping>>()
-    ).collect();
-    Ok((h_routes, mapping))
+    let new_mappings: Vec<_> = lines_without_route.iter().map(|(line_guid, startend)| {
+        let ordered_mrids = reorder_startend(startend).join("_");
+        RouteLineMapping {
+            line_mrid: line_guid.clone(), route_mrid: ordered_mrids.clone(), shift_orth: 0.0, order: 0,
+            invert_direction: ordered_mrids.eq(&startend.join("_").clone())
+        } }).collect();
+    let mappings: Vec<RouteLineMapping> = gd.mappings.clone().into_iter()
+        .chain(new_mappings.into_iter()).collect();
+
+    Ok((routes, mappings))
 }
 
-fn route_line_mapping_fix_ordering(mapping_in: Vec<RouteLineMapping>) -> Vec<RouteLineMapping> {
+fn route_line_mapping_fix_ordering(mapping_in: &Vec<RouteLineMapping>) -> Vec<RouteLineMapping> {
     let mut counter: HashMap<String, f32> = HashMap::new();
     mapping_in.iter().for_each(|rlm| {
         counter.entry(rlm.route_mrid.clone()).and_modify(|v| *v -= 0.5).or_insert(0.0);
     });
 
-    let mut mapping = mapping_in;
+    let mut mapping = mapping_in.clone();
     mapping.sort_by(|a, b| {
         let (av, bv) = (&a.shift_orth, &b.shift_orth);
         av.partial_cmp(bv).unwrap()
@@ -99,11 +122,11 @@ fn route_line_mapping_fix_ordering(mapping_in: Vec<RouteLineMapping>) -> Vec<Rou
 }
 
 #[allow(dead_code)]
-fn generate_line_segments_for_line(h_routes: &HashMap<String,  Route>, mapping: &Vec<RouteLineMapping>,
-                                   cur_guid: String, parameter: JsonObject) -> Result<LayoutLine, String>
+fn generate_line_segments_for_line(h_routes: &HashMap<String, &Route>, mapping: &Vec<RouteLineMapping>,
+                                   cur_line_guid: String, parameter: JsonObject) -> Result<LayoutLine, String>
 {
     let cur_mappings: Vec<RouteLineMapping> = mapping.clone().into_iter()
-        .filter(|x| x.line_mrid.eq(&cur_guid))
+        .filter(|x| x.line_mrid.eq(&cur_line_guid))
         .sorted_by(|a, b| Ord::cmp(&a.order, &b.order))
         .collect();
 
@@ -119,22 +142,23 @@ fn generate_line_segments_for_line(h_routes: &HashMap<String,  Route>, mapping: 
         rp.windows(2).map(|p| LineSegment{
             ll_line: [p[0].clone(), p[1].clone()], shift, ext_info: None }).collect::<Vec<LineSegment>>()
     ).collect();
-    Ok(LayoutLine{ start_processed: false, end_processed: false, guid: cur_guid, line_segments: ls.clone(), line_segments_new: None, properties: parameter, })
+    Ok(LayoutLine{ start_processed: false, end_processed: false, guid: cur_line_guid, line_segments: ls.clone(), line_segments_new: None, properties: parameter, })
 }
 
 #[allow(dead_code)]
-fn generate_layoutlines_ulines(h_routes: &HashMap<String,  Route>, h_ulines: &HashMap<String, UniqueLine>,
+fn generate_layoutlines_ulines(h_routes: &HashMap<String, &Route>, h_ulines: &HashMap<String, &UniqueLine>,
                                  mapping: &Vec<RouteLineMapping>) -> Result<Vec<LayoutLine>, String>
 {
-    let u = h_ulines.into_iter().map(|(_, l)| {
+    let u = h_ulines.iter().map(|(_, l)| {
         generate_line_segments_for_line(h_routes, mapping, l.guid.clone(), l.parameter.clone())
     }).collect::<Result<Vec<LayoutLine>, String>>()?;
     Ok(u)
 }
 
 #[allow(dead_code)]
-fn generate_layoutlines_lines(h_routes: &HashMap<String,  Route>, h_lines: &HashMap<String, Line>, h_ulines: &HashMap<String, UniqueLine>,
-                                 mapping: &Vec<RouteLineMapping>) -> Result<Vec<LayoutLine>, String>
+fn generate_layoutlines_lines(h_routes: &HashMap<String, &Route>, h_lines: &HashMap<String, &Line>,
+                              h_ulines: &HashMap<String, &UniqueLine>, mapping: &Vec<RouteLineMapping>)
+    -> Result<Vec<LayoutLine>, String>
 {
     let u = h_lines.into_iter().map(|(_, l)| {
         let Some(ul) = h_ulines.get(&l.unique_line_mrid)
@@ -153,29 +177,21 @@ fn generate_layoutlines_lines(h_routes: &HashMap<String,  Route>, h_lines: &Hash
 /// returns: (HashMap<String, Location, RandomState>, HashMap<String, Route, RandomState>, Option<HashMap<String, UniqueLine, RandomState>>, Option<HashMap<String, Line, RandomState>>)
 ///
 #[allow(dead_code)]
-fn create_hashmaps(gd: &GridData) -> (HashMap<String, Location>, HashMap<String, Route>,
-                                      Option<HashMap<String, UniqueLine>>, Option<HashMap<String, Line>>)
+fn create_hashmaps(gd: &GridData) -> (HashMap<String, &Location>, /*HashMap<String, &Route>,*/
+                                      HashMap<String, &UniqueLine>, Option<HashMap<String, &Line>>)
 {
-    let h_locations: HashMap<_, _> = gd.locations.clone().into_iter()
-        .map(|v| (v.guid.clone(), v)).collect();
-    let h_routes_in: HashMap<_, _> = gd.routes.clone().into_iter()
-        .map(|v| (v.guid.clone(), v)).collect();
-    let h_ulines = match gd.unique_lines.clone() {
+    let h_locations: HashMap<_, _> = gd.locations.iter().map(|v| (v.guid.clone(), v)).collect();
+    // let h_routes: HashMap<_, _> = gd.routes.iter().map(|v| (v.guid.clone(), v)).collect();
+    let h_ulines: HashMap<_, _> = gd.unique_lines.iter().map(|v| (v.guid.clone(), v)).collect();
+    let h_lines = match gd.lines.as_ref() {
         None => None,
         Some(v) => {
-            let hm: HashMap<_, _> = v.into_iter()
-                .map(|v| (v.guid.clone(), v)).collect();
-            Some(hm)
-        } };
-    let h_lines = match gd.lines.clone() {
-        None => None,
-        Some(v) => {
-            let hm: HashMap<_, _> = v.into_iter()
+            let hm: HashMap<_, _> = v.iter()
                 .map(|v| (v.guid.clone(), v)).collect();
             Some(hm)
         } };
 
-    (h_locations, h_routes_in, h_ulines, h_lines)
+    (h_locations, /*h_routes,*/ h_ulines, h_lines)
 }
 
 fn kink_for_first(ls: LineSegment, kink_dist: f64) -> LineSegment {
@@ -228,69 +244,22 @@ fn make_start_and_end_kink(ll: LayoutLine, kink_dist: f64) -> LayoutLine {
 #[allow(dead_code)]
 pub fn generate_layout_lines(gd: &GridData) -> Result<Vec<LayoutLine>, String> {
     // ***
-    let (h_locations, h_routes_in,
+    let (h_locations, /*h_routes_in,*/
         h_ulines, h_lines) = create_hashmaps(&gd);
 
-    // Check data
-    if gd.lines.is_none() && gd.unique_lines.is_none()
-    { return Err(format!("Either unique lines or unique lines and lines have to be given."))}
-    if gd.lines.is_some() {
-        let wrong_lines: Vec<_> = gd.lines.clone().unwrap().into_iter()
-            .map(|l| l.loc_startend_mrid.clone().into_iter().enumerate()
-                .map(|(i, loc_mrid)| match h_locations.contains_key(loc_mrid.as_str()) {
-                    true => return format!(""),
-                    false => return format!("Location '{}' refered to by line '{}' ({}) | ", loc_mrid.clone(), l.guid.clone(), i)
-                }).collect::<Vec<String>>().join("")
-            ).filter(|v| v != "").collect();
-        if wrong_lines.len() > 0
-        { return Err(format!("Inconsistant line properties found:\n- {}\n", wrong_lines.join("\n- "))); }
-
-        if gd.unique_lines.is_none()
-        { return Err(format!("Lines set but unique lines not set")); }
-    }
-    if gd.lines.is_some() && gd.unique_lines.is_some() {
-        let h_lines_t = h_lines.as_ref().unwrap();
-        let wrong_lines: Vec<_> = gd.lines.clone().unwrap().into_iter()
-            .map(|v| {
-                if let Some(c_uline) = h_lines_t.get(v.unique_line_mrid.as_str().clone()) {
-                    if !v.uline_direction_inverse {
-                        if v.loc_startend_mrid[0] != c_uline.loc_startend_mrid[0] ||
-                            v.loc_startend_mrid[1] != c_uline.loc_startend_mrid[1]
-                        { return format!("Start and end locations of unique line '{}' referenced by line '{}' diverge", c_uline.guid, v.guid) }
-                    } else {
-                        if v.loc_startend_mrid[1] != c_uline.loc_startend_mrid[0] ||
-                            v.loc_startend_mrid[0] != c_uline.loc_startend_mrid[1]
-                        { return format!("Start and end locations of unique line '{}' referenced by line '{}' diverge", c_uline.guid, v.guid) }
-                    }
-                }
-                else { return format!("Cannot find unique line referenced in line {}", v.unique_line_mrid.clone()) }
-                String::from("")
-            }).filter(|v| v != "").collect();
-        if wrong_lines.len() > 0
-        { return Err(format!("Inconsistant lines properties found:\n- {}\n", wrong_lines.join("\n- ")))}
-    }
-    {
-        let wrong_routes: Vec<_> = gd.routes.clone().into_iter().map(|r|
-            if r.route_points.len() < 2 { format!("Invalid routepoints for route '{}' (less than 2)", r.guid) }
-            else { format!("") })
-            .filter(|v| v != "").collect();
-        if wrong_routes.len() > 0
-        { return Err(format!("Inconsistant route properties found:\n- {}\n", wrong_routes.join("\n- ")))}
-    }
-
     // generate missing routes
-    let (h_routes, mapping) =
-        generate_missing_routes(gd.clone(), h_locations, h_routes_in)?;
+    let (routes, mappings) = generate_missing_routes(&gd, &h_locations)?;
+    let h_routes: HashMap<_, _> = routes.iter().map(|v| (v.guid.clone(), v)).collect();
 
     // fix ordering so that there is 1 difference in the shift_orth between the lines
-    let mapping = route_line_mapping_fix_ordering(mapping);
+    let mappings = route_line_mapping_fix_ordering(&mappings);
 
     //
     let lls = {
-        if h_lines.is_some()
-        { generate_layoutlines_lines(&h_routes,&h_lines.unwrap(),&h_ulines.unwrap(), &mapping) }
+        if let Some(h_lines_val) = h_lines.as_ref()
+        { generate_layoutlines_lines(&h_routes,&h_lines_val, &h_ulines, &mappings) }
         else
-        { generate_layoutlines_ulines(&h_routes,&h_ulines.unwrap(), &mapping) }
+        { generate_layoutlines_ulines(&h_routes, &h_ulines, &mappings) }
     }?;
 
     Ok(lls)
@@ -450,8 +419,8 @@ fn get_element_from_optional_vec<T: Clone>(hm: Option<HashMap<String, T>>, mrid:
     None
 }
 pub fn process_line_merge_and_branch(lls: Vec<LayoutLine>, gd: GridData) -> (Vec<LayoutLine>, Vec<Location>) {
-    let (h_locations, _,
-        h_ulines, h_lines) = create_hashmaps(&gd);
+    let (h_locations, h_ulines,
+        h_lines) = create_hashmaps(&gd);
 
     let line_dist: f64 = gd.parameter.line_dist.clone();
     let mut connection_dots: Vec<Location> = Vec::new();
@@ -479,14 +448,16 @@ pub fn process_line_merge_and_branch(lls: Vec<LayoutLine>, gd: GridData) -> (Vec
 
             let loc_data = {
                 let line = get_element_from_optional_vec(h_lines.clone(), ll_start.guid.clone());
-                let uline = get_element_from_optional_vec(h_ulines.clone(), ll_start.guid.clone());
+                let uline = h_ulines.get(&ll_start.guid).cloned();
                 let loc_mrid = if let Some(l) = line
                 { l.loc_startend_mrid[1].clone() } else if let Some(ul) = uline
                 { ul.loc_startend_mrid[1].clone() } else { panic!("process_line_merge_and_branch(): error getting loc_mrid") };
-                h_locations.get(&loc_mrid).unwrap()
+                *h_locations.get(&loc_mrid).unwrap()
             };
-            connection_dots.push(Location{ll: midpoint.into(), guid: format!("{}_{}", loc_data.guid.clone(), "lala"),
-                ..loc_data.clone()});
+            let cl = Location{ll: midpoint.into(), guid: format!("{}_{}", loc_data.guid.clone(), "lala"),
+                ..loc_data.clone()
+            };
+            connection_dots.push(cl);
         }
     });
     (llsm, connection_dots)
@@ -514,10 +485,403 @@ pub fn process_line_kinks_and_finish(lls: Vec<LayoutLine>, kink_dist: f64) -> Ve
 }
 
 // ***
-pub fn consistency_checks(gd: &GridData) -> Result<(), String> {
-    let (h_locations, h_routes_in,
-        h_ulines, h_lines) = create_hashmaps(&gd);
+pub fn consistency_checks_and_filter(gd: GridData) -> Result<(GridData, FilterOutReport), String> {
+    // filter location data
+    let filtered_locs: Vec<_> = gd.locations.clone().into_iter().filter(|l|
+        l.ll.lat.is_some() && l.ll.lng.is_some()).collect();
+    let loc_ids: Vec<_> = filtered_locs.iter().map(|l| l.guid.clone()).sorted().collect();
+    let filtered_out_locs: Vec<_> = gd.locations.iter().filter(|&l|
+        loc_ids.binary_search(&l.guid).is_err())
+        .map(|l| l.guid.clone()).collect();
+    let gd = GridData{locations: filtered_locs, ..gd};
 
+    let locations_ids: Vec<String> = gd.locations.iter()
+        .map(|l| l.guid.clone()).sorted().collect();
+
+    // let (h_locations, h_routes_in,
+    //     h_ulines, h_lines) = create_hashmaps(&gd);
+
+    // *****************************************
+    // Filter lines and unique lines
+    fn loc_startend_mrid_present(loc_startend_mrid: &[String; 2], locations_ids: &Vec<String>) -> bool {
+        locations_ids.binary_search(&loc_startend_mrid[0]).is_ok() &&
+            locations_ids.binary_search(&loc_startend_mrid[0]).is_ok()
+    }
+    // filter lines for which the locations cannot be found
+    let (gd, line_ids, filtered_out_lines) = if let Some(lines) = gd.lines.as_ref() {
+        let filtered_line_objs: Vec<_> = lines.iter().filter(
+            |l| loc_startend_mrid_present(&l.loc_startend_mrid, &locations_ids)).cloned().collect();
+        let line_ids: Vec<_> = filtered_line_objs.iter().map(|l| l.guid.clone()).sorted().collect();
+        let filtered_out_lines: Vec<_> = lines.iter().filter(| l| line_ids.binary_search(&l.guid).is_err())
+            .map(|l| l.guid.clone()).collect();
+        (GridData{ lines: Some(filtered_line_objs), ..gd}, line_ids, filtered_out_lines)
+    } else { (gd, vec![], vec![]) };
+    // filter unique lines for which the locations cannot be found
+    let (gd, uline_ids, filtered_out_ulines) = {
+        let filtered_uline_objs: Vec<_> = gd.unique_lines.iter().filter(
+            | ul| loc_startend_mrid_present(&ul.loc_startend_mrid, &locations_ids)).cloned().collect();
+        let uline_ids: Vec<_> = filtered_uline_objs.iter().map(|l| l.guid.clone()).sorted().collect();
+        let filtered_out_ulines: Vec<_> = gd.unique_lines.iter().filter(|ul| uline_ids.binary_search(&ul.guid).is_err())
+            .map(|ul| ul.guid.clone()).collect();
+        (GridData{ unique_lines: filtered_uline_objs, ..gd}, uline_ids, filtered_out_ulines)
+    };
+
+    // *****************************************
+    // Filter routes
+    let (gd, r_ids, filtered_out_routes) = {
+        let filtered_routes = gd.routes.iter().filter(
+            |r| loc_startend_mrid_present(&r.loc_startend_mrid, &locations_ids)).cloned().collect();
+        let r_ids = gd.routes.iter().map(
+            |r| r.guid.clone()).sorted().collect::<Vec<String>>();
+        let filtered_out_routes: Vec<_> = gd.routes.iter().filter(|r| r_ids.binary_search(&r.guid).is_err())
+            .map(|r| r.guid.clone()).collect();
+        (GridData{routes: filtered_routes, ..gd}, r_ids, filtered_out_routes)
+    };
+
+    // *****************************************
+    // Filter mapping
+    let (gd, filtered_out_mappings) = {
+        let check_route_line = |rlm: &RouteLineMapping| -> bool {
+            r_ids.binary_search(&rlm.route_mrid).is_ok() &&
+                (line_ids.binary_search(&rlm.line_mrid.clone()).is_ok() || uline_ids.binary_search(&rlm.line_mrid).is_ok())
+        };
+        let m_str = |route_mrid: &String, line_mrid: &String| -> String { format!("r{}_l{}", route_mrid.clone(), line_mrid.clone()) };
+
+        let filtered_mappings: Vec<_> = gd.mappings.iter().filter(|rlm| { check_route_line(rlm) }).cloned().collect();
+        let m_ids: Vec<_> = filtered_mappings.iter().map(|m| m_str(&m.route_mrid, &m.line_mrid))
+            .sorted().collect();
+        let filtered_out_mappings: Vec<_> = gd.mappings.iter().map(|m| m_str(&m.route_mrid, &m.line_mrid))
+            .filter(|s| m_ids.binary_search(&s).is_err()).collect();
+        (GridData{ mappings: filtered_mappings, ..gd}, filtered_out_mappings)
+    };
+    // ********************************************
+    // Check lines and route data
+    let start_end_index_adjust = |idx: usize, is_inverse: &bool| -> usize {
+        if *is_inverse { return (idx + 1) & 1; }
+        idx
+    };
+    if gd.lines.is_some() {
+        // let h_lines = h_lines.as_ref().unwrap();
+        let h_ulines: HashMap<_, _>  = gd.unique_lines.iter()
+            .map(|v| (v.guid.clone(), v)).collect();
+        let wrong_lines: Vec<_> = gd.lines.as_ref().unwrap().iter()
+            .map(|cline| {
+                if let Some(c_uline) = h_ulines.get(&cline.unique_line_mrid) {
+                    if cline.loc_startend_mrid[0] !=
+                        c_uline.loc_startend_mrid[start_end_index_adjust(0, &cline.uline_direction_inverse)] ||
+                        cline.loc_startend_mrid[1] !=
+                            c_uline.loc_startend_mrid[start_end_index_adjust(1, &cline.uline_direction_inverse)]
+                    { return format!("Start and end locations of unique line '{}' referenced by line '{}' diverge", c_uline.guid, cline.guid) }
+                }
+                else { return format!("Cannot find unique line referenced in line {}", cline.unique_line_mrid.clone()) }
+                String::from("")
+            }).filter(|v| v != "").collect();
+        if wrong_lines.len() > 0
+        { return Err(format!("Inconsistant lines properties found:\n- {}\n", wrong_lines.join("\n- ")))}
+    }
+    {
+        let wrong_routes: Vec<_> = gd.routes.iter().map(|r|
+            if r.route_points.len() < 2 { format!("Invalid routepoints for route '{}' (less than 2)", r.guid) }
+            else { format!("") })
+            .filter(|v| v != "").collect();
+        if wrong_routes.len() > 0
+        { return Err(format!("Inconsistant route properties found:\n- {}\n", wrong_routes.join("\n- "))) }
+    }
+
+    debug!("*Consistency checks passed.\nData Details:\n  - locations: {} (filtered_out: 0)\n  - unique_lines: {} (filtered_out: {})\
+            \n  - lines: {} (filtered_out: {})\n  - routes: {} (filtered_out: {})\n  - mapping: {} (filtered_out: {})",
+        gd.locations.len(), gd.unique_lines.len(), filtered_out_ulines.len(),
+        gd.lines.as_ref().unwrap_or(&vec![]).len(), filtered_out_lines.len(),
+        gd.routes.len(), filtered_out_routes.len(), gd.mappings.len(), filtered_out_mappings.len()
+    );
+    Ok((gd, FilterOutReport { filtered_out_locations: filtered_out_locs, filtered_out_routes,
+        filtered_out_lines, filtered_out_ulines, filtered_out_mappings }))
+}
+
+///
+///
+/// # Arguments
+///
+/// * `gd`:
+///
+/// returns: Result<GeoJsonContent, String>
+///
+/// # Examples
+///
+/// ```
+///
+/// ```
+// ***
+pub fn generate_geojson(gd: GridData) -> Result<GeoJsonContent, String> {
+    let (gd, filer_report) = consistency_checks_and_filter(gd)?;
+
+    // ************************************************
+    let locations_fct = |hidden| -> Vec<Feature> {
+        gd.locations.clone().into_iter()
+            .filter(|l| l.hidden==hidden)
+            .map(|l| {
+                let p = vec![l.ll.lng.unwrap(), l.ll.lat.unwrap()];
+                let mut prop = l.properties.clone();
+                prop.insert("guid".to_string(),l.guid.clone().into());
+                Feature { bbox: None,
+                    geometry: Some(Geometry::from(Value::Point(p))),
+                    properties: Some(prop), id: None, foreign_members: None }
+            }).collect()
+    };
+    let locations: Vec<_> = locations_fct(false);
+    let locations_hidden: Vec<_> = locations_fct(true);
+
+    // ************************************************
+    let lls = generate_layout_lines(&gd)?;
+
+    let lls: Vec<_> = lls.into_iter()
+        .map(|ll| process_layout_line(ll, gd.parameter.line_dist.clone())).collect();
+    let (lls, connection_dots) = process_line_merge_and_branch(lls, gd.clone());
+    let lls = process_line_kinks_and_finish(lls, gd.parameter.kink_dist.clone());
+
+    // make final lat/lng
+    // let ll = {
+    //     let line_segments_new: Option<Vec<_>> = Some(lls.line_segments.clone().into_iter()
+    //         .map(|ls| {
+    //             let lsei = ls.ext_info.unwrap();
+    //             let ll_line= [LL::from(lsei.line[0].clone()), LL::from(lsei.line[1].clone())];
+    //             LineSegment{ll_line, ext_info: None, ..ls}
+    //         }).collect());
+    //     LayoutLine{line_segments_new, ..ll}
+    // };
+
+    let lines: Vec<_> = lls.into_iter().map(|v| {
+        let ls: Vec<Position> = v.line_segments_new.unwrap().into_iter().flat_map(|p| {
+            vec![p.ll_line[0].clone(), p.ll_line[1].clone()]
+        }).dedup().map(|p| vec![p.lng.unwrap(), p.lat.unwrap()]).collect();
+        let mut prop = v.properties.clone();
+        prop.insert("guid".to_string(), v.guid.clone().into());
+        Feature { bbox: None, geometry: Some(Geometry::from(Value::LineString(ls))),
+            properties: Some(prop), id: None, foreign_members: None }
+    }).collect();
+
+    let connection_dots_feature: Vec<_> = connection_dots.clone().into_iter().map(|l| {
+            let p = vec![l.ll.lng.unwrap(), l.ll.lat.unwrap()];
+            let mut prop = l.properties.clone();
+            prop.insert("guid".to_string(),l.guid.clone().into());
+            Feature { bbox: None,
+                geometry: Some(Geometry::from(Value::Point(p))),
+                properties: Some(prop), id: None, foreign_members: None }
+        }).collect();
+
+    // ************************************************
+    Ok(GeoJsonContent {
+        locations: FeatureCollection::from_iter(locations),
+        hidden_locations: FeatureCollection::from_iter(locations_hidden),
+        lines: FeatureCollection::from_iter(lines),
+        // lines: FeatureCollection{ bbox: None, features: vec![], foreign_members: None, },
+        routes: None,
+        connection_points: FeatureCollection::from_iter(connection_dots_feature),
+        filter_report: filer_report,
+    })
+}
+
+
+// ********************************************************************************+
+// ********************************************************************************+
+#[cfg(test)]
+mod tests {
+    use geojson::JsonValue;
+    use crate::geoleo_types::GeoJsonLayoutParameter;
+    use super::*;
+    use prepared_data;
+
+    fn make_name_props(name: String, region: Option<String>) -> JsonObject {
+        let mut properties = JsonObject::new();
+        properties.insert("name".to_string(), JsonValue::from(name));
+        if region.is_some() {
+            properties.insert("region".to_string(), JsonValue::from(region.unwrap()));
+        }
+        properties
+    }
+
+    fn setup_base_data_simple() -> GridData {
+        let data = GridData {
+            locations: vec![
+                Location {guid: format!("guid_loc_A"), ll: LL { lat: Some(0.0), lng: Some(0.0) }, hidden: false,
+                    properties: make_name_props("A".into(), Some("regA".into())) },
+                Location {guid: format!("guid_loc_B"), ll: LL { lat: Option::from(0.5), lng: Option::from(1.0) }, hidden: false,
+                    properties: make_name_props("B".into(), Some("regA".into())) },
+            ],
+            routes: vec![],
+            unique_lines: vec![
+                UniqueLine {guid: format!("guid_ul_1"), loc_startend_mrid: [format!("guid_loc_A"), format!("guid_loc_B")],
+                    parameter: make_name_props("UL1".into(), None) }],
+            lines: None,
+            mappings: vec![],
+            parameter: GeoJsonLayoutParameter { line_dist: 1., kink_dist: 10. },
+            connected_lines: vec![],
+        };
+        data
+    }
+    fn setup_base_data_ul() -> GridData {
+        let data = GridData {
+            locations: vec![
+                Location {
+                    guid: format!("guid_loc_A"),
+                    ll: LL { lat: Option::from(0.0), lng: Option::from(0.0) },
+                    hidden: false,
+                    properties: make_name_props("A".into(), Some("reg_one".into()))
+                }, //json!({"name": "A", "region": "regA"})},
+                Location {
+                    guid: format!("guid_loc_filtered"),
+                    ll: LL { lat: None, lng: None },
+                    hidden: false,
+                    properties: make_name_props("F".into(), Some("reg_one".into()))
+                }, //json!({"name": "A", "region": "regA"})},
+                Location {
+                    guid: format!("guid_loc_B"),
+                    ll: LL { lat: Option::from(0.5), lng: Option::from(1.0) },
+                    hidden: false,
+                    properties: make_name_props("B".into(), Some("reg_one".into()))
+                }, //json!({"name": "B", "region": "regA"})},
+                Location {
+                    guid: format!("guid_loc_C"),
+                    ll: LL { lat: Option::from(1.0), lng: Option::from(1.5) },
+                    hidden: false,
+                    properties: make_name_props("C".into(), Some("reg_one".into()))
+                }, //json!({"name": "C", "region": "regA"})},
+                Location {
+                    guid: format!("guid_loc_D"),
+                    ll: LL { lat: Option::from(2.0), lng: Option::from(2.0) },
+                    hidden: false,
+                    properties: make_name_props("D".into(), Some("reg_two".into()))
+                }, //json!({"name": "D", "region": "regB"})}
+            ],
+            routes: vec![
+                Route {
+                    guid: format!("guid_r_1"),
+                    loc_startend_mrid: [format!("guid_loc_B"), format!("guid_loc_A")],
+                    route_points: vec![LL { lat: Option::from(0.5), lng: Option::from(1.0) },
+                                       LL { lat: Option::from(1.0), lng: Option::from(0.5) },
+                                       LL { lat: Option::from(0.0), lng: Option::from(0.0) }]
+                },
+                Route {
+                    guid: format!("guid_r_2"),
+                    loc_startend_mrid: [format!("guid_loc_B"), format!("guid_loc_C")],
+                    route_points: vec![LL { lat: Option::from(0.5), lng: Option::from(1.0) },
+                                       LL { lat: Option::from(1.0), lng: Option::from(1.5) }]
+                },
+            ],
+            unique_lines: vec![
+                UniqueLine {
+                    guid: format!("guid_ul_1"),
+                    loc_startend_mrid: [format!("guid_loc_A"), format!("guid_loc_C")],
+                    parameter: make_name_props("UL1".into(), None)
+                }, // json!({"name": "UL1"})},
+                UniqueLine {
+                    guid: format!("guid_ul_2"),
+                    loc_startend_mrid: [format!("guid_loc_D"), format!("guid_loc_C")],
+                    parameter: make_name_props("UL2".into(), None)
+                }, // json!({"name": "UL2"})},
+                UniqueLine {
+                    guid: format!("guid_ul_3"),
+                    loc_startend_mrid: [format!("guid_loc_C"), format!("guid_loc_D")],
+                    parameter: make_name_props("UL3".into(), None)
+                }, // json!({"name": "UL3"})},
+            ],
+            lines: None,
+            mappings: vec![
+                RouteLineMapping {
+                    line_mrid: format!("guid_ul_1"),
+                    route_mrid: format!("guid_r_2"),
+                    shift_orth: 0.0,
+                    order: 1,
+                    invert_direction: false
+                },
+                RouteLineMapping {
+                    line_mrid: format!("guid_ul_1"),
+                    route_mrid: format!("guid_r_1"),
+                    shift_orth: 1.0,
+                    order: 0,
+                    invert_direction: true
+                },
+            ],
+            parameter: GeoJsonLayoutParameter { line_dist: 0.05, kink_dist: 0.05 },
+            connected_lines: vec![],
+        };
+        data
+    }
+
+    #[test]
+    fn generate_missing_routes_and_fix_test() {
+        let gd = setup_base_data_ul();
+
+        let (h_locations, _h_ulines, _h_lines) = create_hashmaps(&gd);
+        let _h_routes: HashMap<_, _> = gd.routes.iter().map(|v| (v.guid.clone(), v)).collect();
+
+        let rr = generate_missing_routes(&gd, &h_locations);
+        assert!(!rr.is_err(), "Error generate_missing_routes: {:?}", rr);
+
+        let (routes, mappings) = rr.unwrap();
+        let h_routes: HashMap<_, _> = routes.iter().map(|v| (v.guid.clone(), v)).collect();
+
+        let mapping = route_line_mapping_fix_ordering(&mappings);
+
+        assert_eq!(mapping.len(), 4);
+        assert_eq!(mapping[1].line_mrid, format!("guid_ul_2"));
+        assert_eq!(mapping[1].route_mrid, format!("guid_loc_D_guid_loc_C"));
+        assert_eq!(mapping[1].shift_orth, -0.5);
+        assert_eq!(mapping[1].order, 0);
+        assert_eq!(mapping[1].invert_direction, true);
+        assert_eq!(mapping[2].line_mrid, format!("guid_ul_3"));
+        assert_eq!(mapping[2].route_mrid, format!("guid_loc_D_guid_loc_C"));
+        assert_eq!(mapping[2].shift_orth, 0.5);
+        assert_eq!(mapping[2].order, 0);
+        assert_eq!(mapping[2].invert_direction, false);
+
+        let t = h_routes.get(&mapping[2].route_mrid);
+        assert_eq!(t.is_some(), true);
+        let tt = t.unwrap();
+        assert_eq!(tt.route_points.len(), 2);
+        assert_eq!(tt.route_points[0].lat.unwrap(), 2.);
+        assert_eq!(tt.route_points[0].lng.unwrap(), 2.);
+        assert_eq!(tt.route_points[1].lat.unwrap(), 1.);
+        assert_eq!(tt.route_points[1].lng.unwrap(), 1.5);
+    }
+
+    #[test]
+    fn generate_layout_lines_test() {
+        let gd = setup_base_data_ul();
+
+        // let (h_locations, h_routes_in,
+        //     h_ulines, h_lines) = create_hashmaps(&gd);
+
+        let lls = generate_layout_lines(&gd);
+        assert!(lls.is_ok(), "Got error: {:?}", lls);
+        let lls = lls.unwrap();
+
+        assert_eq!(lls.len(), 3);
+    }
+
+    #[test]
+    fn geojson_test() {
+        let gd = setup_base_data_simple();
+        let gj = generate_geojson(gd).unwrap();
+        let gj_str = serde_json::to_string(&gj).unwrap();
+        println!("geojson: {}", gj_str);
+
+        assert_eq!(1, 1);
+    }
+
+    #[test]
+    fn testcase_load_test() {
+        let pd_gd = prepared_data::load_testcase_by_id("tc_0000".to_string(),
+                                                 "./tests/test_cases".to_string()).unwrap();
+        let gd = setup_base_data_ul();
+        assert_eq!(pd_gd, gd);
+    }
+}
+
+
+
+
+/*
     let l_err: Vec<_> = if let Some(clines) = gd.lines.clone() {
         clines.clone().into_iter().flat_map(|l| {
             let mut r = Vec::new();
@@ -592,264 +956,14 @@ pub fn consistency_checks(gd: &GridData) -> Result<(), String> {
 
     let all_err: Vec<_> = l_err.into_iter().chain(ul_err).chain(r_err).chain(rlm_err)
         .chain(conl_err).collect();
+*/
 
-    let r = if all_err.len() > 0 { Err(all_err.into_iter().join("\n")) } else { Ok(()) };
-    r
-}
+//    let r = if all_err.len() > 0 { Err(all_err.into_iter().join("\n")) }
+/*    let r = if false { Err(format!("lala")) }
+    else { Ok((gd, FilterReport{
+        filtered_locations: vec![],
+        filtered_routes, filtered_lines, filtered_ulines,
+    })) };
+    r*/
 
-// ***
-pub fn generate_geojson(gd: GridData) -> Result<GeoJsonContent, String> {
-    consistency_checks(&gd)?;
-
-    // ************************************************
-    let locations_fct = |hidden| -> Vec<Feature> {
-        gd.locations.clone().into_iter()
-            .filter(|l| l.hidden==hidden)
-            .map(|l| {
-                let p = vec![l.ll.lat.clone(), l.ll.lng.clone()];
-                let mut prop = l.properties.clone();
-                prop.insert("guid".to_string(),l.guid.clone().into());
-                Feature { bbox: None,
-                    geometry: Some(Geometry::from(Value::Point(p))),
-                    properties: Some(prop), id: None, foreign_members: None }
-            }).collect()
-    };
-    let locations: Vec<_> = locations_fct(false);
-    let locations_hidden: Vec<_> = locations_fct(true);
-
-    // ************************************************
-    let lls = generate_layout_lines(&gd)?;
-
-    let lls: Vec<_> = lls.into_iter()
-        .map(|ll| process_layout_line(ll, gd.parameter.line_dist.clone())).collect();
-    let (lls, connection_dots) = process_line_merge_and_branch(lls, gd.clone());
-    let lls = process_line_kinks_and_finish(lls, gd.parameter.kink_dist.clone());
-
-    // make final lat/lng
-    // let ll = {
-    //     let line_segments_new: Option<Vec<_>> = Some(lls.line_segments.clone().into_iter()
-    //         .map(|ls| {
-    //             let lsei = ls.ext_info.unwrap();
-    //             let ll_line= [LL::from(lsei.line[0].clone()), LL::from(lsei.line[1].clone())];
-    //             LineSegment{ll_line, ext_info: None, ..ls}
-    //         }).collect());
-    //     LayoutLine{line_segments_new, ..ll}
-    // };
-
-    let lines: Vec<_> = lls.into_iter().map(|v| {
-        let ls: Vec<Position> = v.line_segments_new.unwrap().into_iter().flat_map(|p| {
-            vec![p.ll_line[0].clone(), p.ll_line[1].clone()]
-        }).dedup().map(|p| vec![p.lat, p.lng]).collect();
-        let mut prop = v.properties.clone();
-        prop.insert("guid".to_string(), v.guid.clone().into());
-        Feature { bbox: None, geometry: Some(Geometry::from(Value::LineString(ls))),
-            properties: Some(prop), id: None, foreign_members: None }
-    }).collect();
-
-    let connection_dots_feature: Vec<_> = connection_dots.clone().into_iter().map(|l| {
-            let p = vec![l.ll.lat.clone(), l.ll.lng.clone()];
-            let mut prop = l.properties.clone();
-            prop.insert("guid".to_string(),l.guid.clone().into());
-            Feature { bbox: None,
-                geometry: Some(Geometry::from(Value::Point(p))),
-                properties: Some(prop), id: None, foreign_members: None }
-        }).collect();
-
-    // ************************************************
-    Ok(GeoJsonContent {
-        locations: FeatureCollection::from_iter(locations),
-        hidden_locations: FeatureCollection::from_iter(locations_hidden),
-        lines: FeatureCollection::from_iter(lines),
-        // lines: FeatureCollection{ bbox: None, features: vec![], foreign_members: None, },
-        routes: None,
-        connection_points: FeatureCollection::from_iter(connection_dots_feature),
-    })
-}
-
-
-// ********************************************************************************+
-// ********************************************************************************+
-#[cfg(test)]
-mod tests {
-    use geojson::JsonValue;
-    use crate::geoleo_types::GeoJsonLayoutParameter;
-    use super::*;
-    use prepared_data;
-
-    fn make_name_props(name: String, region: Option<String>) -> JsonObject {
-        let mut properties = JsonObject::new();
-        properties.insert("name".to_string(), JsonValue::from(name));
-        if region.is_some() {
-            properties.insert("region".to_string(), JsonValue::from(region.unwrap()));
-        }
-        properties
-    }
-
-    fn setup_base_data_simple() -> GridData {
-        let data = GridData {
-            locations: vec![
-                Location {guid: format!("guid_loc_A"), ll: LL { lat: 0.0, lng: 0.0 }, hidden: false,
-                    properties: make_name_props("A".into(), Some("regA".into())) },
-                Location {guid: format!("guid_loc_B"), ll: LL { lat: 0.5, lng: 1.0 }, hidden: false,
-                    properties: make_name_props("B".into(), Some("regA".into())) },
-            ],
-            routes: vec![],
-            unique_lines: Some(vec![
-                UniqueLine {guid: format!("guid_ul_1"), loc_startend_mrid: [format!("guid_loc_A"), format!("guid_loc_B")],
-                    parameter: make_name_props("UL1".into(), None) }]),
-            lines: None,
-            mapping: vec![],
-            parameter: GeoJsonLayoutParameter { line_dist: 1., kink_dist: 10. },
-            connected_lines: vec![],
-        };
-        data
-    }
-    fn setup_base_data_ul() -> GridData {
-        let data = GridData {
-            locations: vec![
-                Location {
-                    guid: format!("guid_loc_A"),
-                    ll: LL { lat: 0.0, lng: 0.0 },
-                    hidden: false,
-                    properties: make_name_props("A".into(), Some("reg_one".into()))
-                }, //json!({"name": "A", "region": "regA"})},
-                Location {
-                    guid: format!("guid_loc_B"),
-                    ll: LL { lat: 0.5, lng: 1.0 },
-                    hidden: false,
-                    properties: make_name_props("B".into(), Some("reg_one".into()))
-                }, //json!({"name": "B", "region": "regA"})},
-                Location {
-                    guid: format!("guid_loc_C"),
-                    ll: LL { lat: 1.0, lng: 1.5 },
-                    hidden: false,
-                    properties: make_name_props("C".into(), Some("reg_one".into()))
-                }, //json!({"name": "C", "region": "regA"})},
-                Location {
-                    guid: format!("guid_loc_D"),
-                    ll: LL { lat: 2.0, lng: 2.0 },
-                    hidden: false,
-                    properties: make_name_props("D".into(), Some("reg_two".into()))
-                }, //json!({"name": "D", "region": "regB"})}
-            ],
-            routes: vec![
-                Route {
-                    guid: format!("guid_r_1"),
-                    loc_startend_mrid: [format!("guid_loc_B"), format!("guid_loc_A")],
-                    route_points: vec![LL { lat: 0.5, lng: 1.0 }, LL { lat: 1.0, lng: 0.5 }, LL { lat: 0.0, lng: 0.0 }]
-                },
-                Route {
-                    guid: format!("guid_r_2"),
-                    loc_startend_mrid: [format!("guid_loc_B"), format!("guid_loc_C")],
-                    route_points: vec![LL { lat: 0.5, lng: 1.0 }, LL { lat: 1.0, lng: 1.5 }]
-                },
-            ],
-            unique_lines: Some(vec![
-                UniqueLine {
-                    guid: format!("guid_ul_1"),
-                    loc_startend_mrid: [format!("guid_loc_A"), format!("guid_loc_C")],
-                    parameter: make_name_props("UL1".into(), None)
-                }, // json!({"name": "UL1"})},
-                UniqueLine {
-                    guid: format!("guid_ul_2"),
-                    loc_startend_mrid: [format!("guid_loc_D"), format!("guid_loc_C")],
-                    parameter: make_name_props("UL2".into(), None)
-                }, // json!({"name": "UL2"})},
-                UniqueLine {
-                    guid: format!("guid_ul_3"),
-                    loc_startend_mrid: [format!("guid_loc_C"), format!("guid_loc_D")],
-                    parameter: make_name_props("UL3".into(), None)
-                }, // json!({"name": "UL3"})},
-            ]),
-            lines: None,
-            mapping: vec![
-                RouteLineMapping {
-                    line_mrid: format!("guid_ul_1"),
-                    route_mrid: format!("guid_r_2"),
-                    shift_orth: 0.0,
-                    order: 1,
-                    invert_direction: false
-                },
-                RouteLineMapping {
-                    line_mrid: format!("guid_ul_1"),
-                    route_mrid: format!("guid_r_1"),
-                    shift_orth: 1.0,
-                    order: 0,
-                    invert_direction: true
-                },
-            ],
-            parameter: GeoJsonLayoutParameter { line_dist: 0.05, kink_dist: 0.05 },
-            connected_lines: vec![],
-        };
-        data
-    }
-
-    #[test]
-    fn generate_missing_routes_and_fix_test() {
-        let gd = setup_base_data_ul();
-
-        let (h_locations, h_routes_in,
-            _h_ulines, _h_lines) = create_hashmaps(&gd);
-
-        let rr = generate_missing_routes(gd.clone(), h_locations, h_routes_in);
-        assert!(!rr.is_err(), "Error generate_missing_routes: {:?}", rr);
-
-        let (h_routes, mapping) = rr.unwrap();
-
-        let mapping = route_line_mapping_fix_ordering(mapping);
-
-        assert_eq!(mapping.len(), 4);
-        assert_eq!(mapping[1].line_mrid, format!("guid_ul_2"));
-        assert_eq!(mapping[1].route_mrid, format!("guid_loc_D_guid_loc_C"));
-        assert_eq!(mapping[1].shift_orth, -0.5);
-        assert_eq!(mapping[1].order, 0);
-        assert_eq!(mapping[1].invert_direction, true);
-        assert_eq!(mapping[2].line_mrid, format!("guid_ul_3"));
-        assert_eq!(mapping[2].route_mrid, format!("guid_loc_D_guid_loc_C"));
-        assert_eq!(mapping[2].shift_orth, 0.5);
-        assert_eq!(mapping[2].order, 0);
-        assert_eq!(mapping[2].invert_direction, false);
-
-        let t = h_routes.get(&mapping[2].route_mrid);
-        assert_eq!(t.is_some(), true);
-        let tt = t.unwrap();
-        assert_eq!(tt.route_points.len(), 2);
-        assert_eq!(tt.route_points[0].lat, 2.);
-        assert_eq!(tt.route_points[0].lng, 2.);
-        assert_eq!(tt.route_points[1].lat, 1.);
-        assert_eq!(tt.route_points[1].lng, 1.5);
-    }
-
-    #[test]
-    fn generate_layout_lines_test() {
-        let gd = setup_base_data_ul();
-
-        // let (h_locations, h_routes_in,
-        //     h_ulines, h_lines) = create_hashmaps(&gd);
-
-        let lls = generate_layout_lines(&gd);
-        assert!(lls.is_ok(), "Got error: {:?}", lls);
-        let lls = lls.unwrap();
-
-        assert_eq!(lls.len(), 3);
-    }
-
-    #[test]
-    fn geojson_test() {
-        let gd = setup_base_data_simple();
-        let gj = generate_geojson(gd).unwrap();
-        let gj_str = serde_json::to_string(&gj).unwrap();
-        println!("geojson: {}", gj_str);
-
-        assert_eq!(1, 1);
-    }
-
-    #[test]
-    fn testcase_load_test() {
-        let pd_gd = prepared_data::load_testcase_by_id("tc_0000".to_string(),
-                                                 "./tests/test_cases".to_string()).unwrap();
-        let gd = setup_base_data_ul();
-        assert_eq!(pd_gd, gd);
-    }
-}
 
